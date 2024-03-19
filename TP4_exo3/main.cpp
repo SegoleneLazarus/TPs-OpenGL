@@ -5,9 +5,11 @@
 struct Vertex2DColor{glm::vec2 position;
                     glm::vec3 color;};
 
+const float pi = glm::radians(180.0f);
+
 int main()
 {
-    auto ctx = p6::Context{{1280, 720, "TP3 EX1"}};
+    auto ctx = p6::Context{{1280, 720, "TP4 EX3"}};
     ctx.maximize_window();
 
     
@@ -48,7 +50,7 @@ int main()
 
     const p6::Shader shader = p6::load_shader(
         "shaders/color2D.vs.glsl",
-        "shaders/grey2D.fs.glsl"
+        "shaders/halo.fs.glsl"
     );
 
 
