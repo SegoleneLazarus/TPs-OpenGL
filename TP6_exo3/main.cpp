@@ -12,21 +12,57 @@
 
 const float pi = glm::radians(180.0f);
 
+struct EarthProgram {
+    p6::Shader m_Program;
+
+    GLint uMVPMatrix;
+    GLint uMVMatrix;
+    GLint uNormalMatrix;
+    GLint uEarthTexture;
+    GLint uCloudTexture;
+
+    EarthProgram()
+        : m_Program{p6::load_shader("shaders/3D.vs.glsl", "shaders/multiTex3D.fs.glsl")}
+    {
+        uMVPMatrix    = glGetUniformLocation(m_Program.id(), "uMVPMatrix");
+        uMVMatrix     = glGetUniformLocation(m_Program.id(), "uMVMatrix");
+        uNormalMatrix = glGetUniformLocation(m_Program.id(), "uNormalMatrix");
+        uEarthTexture = glGetUniformLocation(m_Program.id(), "uEarthTexture");
+        uCloudTexture = glGetUniformLocation(m_Program.id(), "uCloudTexture");
+    }
+};
+
+struct MoonProgram {
+    p6::Shader m_Program;
+
+    GLint uMVPMatrix;
+    GLint uMVMatrix;
+    GLint uNormalMatrix;
+    GLint uTexture;
+
+    MoonProgram()
+        : m_Program{p6::load_shader("shaders/3D.vs.glsl", "shaders/tex3D.fs.glsl")}
+    {
+        uMVPMatrix    = glGetUniformLocation(m_Program.id(), "uMVPMatrix");
+        uMVMatrix     = glGetUniformLocation(m_Program.id(), "uMVMatrix");
+        uNormalMatrix = glGetUniformLocation(m_Program.id(), "uNormalMatrix");
+        uTexture      = glGetUniformLocation(m_Program.id(), "uTexture");
+    }
+};
+
 int main()
 {
-    auto ctx = p6::Context{{1280, 720, "TP3 EX1"}};
+    auto ctx = p6::Context{{1280, 720, "TP6 EX1"}};
     ctx.maximize_window();
 
-    // Charger les shaders et les compiler
-    const p6::Shader shader = p6::load_shader(
-        "shaders/3D.vs.glsl",
-        "shaders/tex3D.fs.glsl"
-    );
+    // Charger les shaders
+    EarthProgram earthProgram{};
+    MoonProgram  moonProgram{};
 
     // Générer les vertex de la sphere
-    int                                    Nlat           = 32;   // Nombre de triangles en latitude
-    int                                    Nlong          = 16;   // Nombre de triangles en longitude
-    float                                  radius         = 1.0f; // Rayon
+    int                                    Nlat           = 32;   
+    int                                    Nlong          = 16;  
+    float                                  radius         = 1.0f;
     const std::vector<glimac::ShapeVertex> sphereVertices = glimac::sphere_vertices(radius, Nlat, Nlong);
 
     /***************************
@@ -102,6 +138,16 @@ int main()
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, moonTex.width(), moonTex.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, moonTex.data());
     glBindTexture(GL_TEXTURE_2D, 0);
 
+    auto   cloudTex = p6::load_image_buffer("assets/textures/CloudMap.jpg");
+    GLuint cloudTexId;
+    glGenTextures(1, &cloudTexId);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, cloudTexId);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cloudTex.width(), cloudTex.height(), 0, GL_RGBA, GL_UNSIGNED_BYTE, cloudTex.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
     /***************************
      * INFINITE UPDATE LOOP *
      ***************************/
@@ -111,51 +157,64 @@ int main()
 
         glBindVertexArray(VAO);
 
-        // Activer les shaders
-        shader.use();
+        // Use earth shader
+        earthProgram.m_Program.use();
 
         // Variables uniformes
-        int uMVPMatrix    = glGetUniformLocation(shader.id(), "uMVPMatrix");
-        int uMVMatrix     = glGetUniformLocation(shader.id(), "uMVMatrix");
-        int uNormalMatrix = glGetUniformLocation(shader.id(), "uNormalMatrix");
-        int uTextureId    = glGetUniformLocation(shader.id(), "uTexture");
+        glUniform1i(earthProgram.uEarthTexture, 0);
+        glUniform1i(earthProgram.uCloudTexture, 1);
 
-        // Texture earth
+        // Instantiate global matrix
+        const glm::mat4 globalProjMatrix = glm::perspective(glm::radians(70.f), ctx.aspect_ratio(), .1f, 100.f);
+        const glm::mat4 globalMVMatrix   = glm::translate(glm::mat4{1.f}, {0.f, 0.f, -5.f});
+
+        // Earth transformation matrix
+        glm::mat4 earthMVMatrix = glm::rotate(globalMVMatrix, ctx.time(), {0.f, 5.f, 0.f});
+        earthMVMatrix           = glm::rotate(earthMVMatrix, glm::radians(180.0f), {1.f, 0.f, 1.f});
+
+        // Define matrix in earth uniform variables
+        glUniformMatrix4fv(earthProgram.uMVMatrix, 1, GL_FALSE, glm::value_ptr(earthMVMatrix));
+        glUniformMatrix4fv(earthProgram.uNormalMatrix, 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(earthMVMatrix))));
+        glUniformMatrix4fv(earthProgram.uMVPMatrix, 1, GL_FALSE, glm::value_ptr(globalProjMatrix * earthMVMatrix));
+
+        // Earth textures
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, earthTexId);
-        glUniform1i(uTextureId, 0);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, cloudTexId);
 
-        // Planete
-        glm::mat4 ProjMatrix   = glm::perspective(glm::radians(70.f), ctx.aspect_ratio(), .1f, 100.f);
-        glm::mat4 MVMatrix     = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 0.f, -5.f));
-        MVMatrix               = glm::rotate(MVMatrix, ctx.time(), {0.f, -5.f, 0.f});
-        glm::mat4 NormalMatrix = glm::transpose(glm::inverse(MVMatrix));
-        glm::mat4 MVPMatrix    = ProjMatrix * MVMatrix;
-        glUniformMatrix4fv(uMVPMatrix, 1, GL_FALSE, glm::value_ptr(MVPMatrix));
-        glUniformMatrix4fv(uMVMatrix, 1, GL_FALSE, glm::value_ptr(MVMatrix));
-        glUniformMatrix4fv(uNormalMatrix, 1, GL_FALSE, glm::value_ptr(NormalMatrix));
+        // Draw earth
         glDrawArrays(GL_TRIANGLES, 0, size(sphereVertices));
 
-        // Texture moons
+        // Unbind cloud texture
         glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, moonTexId);
-        glUniform1i(uTextureId, 1);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        // Use moon shader
+        moonProgram.m_Program.use();
+
+        // Define texture ID in moon uniform variables
+        glUniform1i(moonProgram.uTexture, 0);
 
         // Lunes
         for (int i = 0; i < moons.size(); i++)
         {
-            ProjMatrix = glm::perspective(glm::radians(70.f), ctx.aspect_ratio(), .1f, 100.f);
-            MVMatrix   = glm::translate(glm::mat4{1.f}, glm::vec3(0.f, 0.f, -5.f));
-            MVMatrix   = glm::rotate(MVMatrix, ctx.time(), {0.f, 1.f, 0.f});
-            MVMatrix   = glm::translate(MVMatrix, moons[i]);
-            MVMatrix   = glm::rotate(MVMatrix, ctx.time(), {0.f, -1.f, 0.f});
-            // MVMatrix     = glm::rotate(MVMatrix, ctx.time(), {1.f, 1.f, 1.f});
-            MVMatrix     = glm::scale(MVMatrix, glm::vec3{0.2f});
-            NormalMatrix = glm::transpose(glm::inverse(MVMatrix));
-            MVPMatrix    = ProjMatrix * MVMatrix;
-            glUniformMatrix4fv(uMVPMatrix, 1, GL_FALSE, glm::value_ptr(MVPMatrix));
-            glUniformMatrix4fv(uMVMatrix, 1, GL_FALSE, glm::value_ptr(MVMatrix));
-            glUniformMatrix4fv(uNormalMatrix, 1, GL_FALSE, glm::value_ptr(NormalMatrix));
+            // Moons transformation matrix
+            glm::mat4 moonMVMatrix = glm::rotate(globalMVMatrix, ctx.time(), {0.f, 1.f, 0.f});
+            moonMVMatrix           = glm::translate(moonMVMatrix, moons[i]);
+            moonMVMatrix           = glm::rotate(moonMVMatrix, ctx.time(), {0.f, -1.f, 0.f});
+            moonMVMatrix           = glm::scale(moonMVMatrix, glm::vec3{0.2f});
+
+            // Define matrix in earth uniform variables
+            glUniformMatrix4fv(moonProgram.uMVMatrix, 1, GL_FALSE, glm::value_ptr(moonMVMatrix));
+            glUniformMatrix4fv(moonProgram.uNormalMatrix, 1, GL_FALSE, glm::value_ptr(glm::transpose(glm::inverse(moonMVMatrix))));
+            glUniformMatrix4fv(moonProgram.uMVPMatrix, 1, GL_FALSE, glm::value_ptr(globalProjMatrix * moonMVMatrix));
+
+            // Earth textures
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, moonTexId);
+
+            // Draw moon
             glDrawArrays(GL_TRIANGLES, 0, size(sphereVertices));
         }
 
@@ -169,5 +228,3 @@ int main()
     glDeleteVertexArrays(1, &VAO);
     glDeleteTextures(1, &earthTexId);
 }
-
-// https://julesfouchy.github.io/Learn--OpenGL/TP6/les-fonctions-sph%C3%A8re-et-cone
